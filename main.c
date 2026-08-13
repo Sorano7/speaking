@@ -61,7 +61,7 @@ void tts_config_en(SherpaOnnxOfflineTtsConfig *config, SherpaOnnxGenerationConfi
     config->model.kokoro.tokens   = "./models/kokoro-en-v0_19/tokens.txt";
 
     tts_gen_config_init(gen_cfg);
-    gen_cfg->sid = 1;
+    gen_cfg->sid = 0;
 }
 
 static int32_t audio_callback(const float *samples, int32_t num_samples, float progress, void *arg)
@@ -86,13 +86,10 @@ void tts_generate(Lang lang, StringView text, void *arg)
 
     DEV_DEBUG("Generating (lang: %d): "STR_FMT, lang, STR_ARG(text));
 
-    char buffer[text.length+1+3];
+    char buffer[text.length+2];
     memcpy(buffer, text.data, text.length);
-    for (size_t i = sizeof(buffer); i > text.length; i--)
-    {
-        buffer[i] = '.';
-    }
-    buffer[text.length] = '\0';
+    buffer[text.length] = '.';
+    buffer[text.length+1] = '\0';
 
     const SherpaOnnxGeneratedAudio *audio = 
         SherpaOnnxOfflineTtsGenerateWithConfig(tts, buffer, gen_cfg, audio_callback, arg);
