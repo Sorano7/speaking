@@ -350,9 +350,14 @@ void overlay_set_callback(const OverlayCallback *c)
 
 void overlay_shutdown(void)
 {
+    if (h_kbd_hook)
+    {
+        UnhookWindowsHookEx(h_kbd_hook);
+    }
     if (h_overlay)
     {
         KillTimer(h_overlay, TIMER_ID_CTRL_POLL);
+        KillTimer(h_overlay, TIMER_ID_IDLE);
     }
     if (h_edit && orig_edit_proc)
     {
