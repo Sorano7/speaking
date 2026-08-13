@@ -50,6 +50,15 @@ typedef struct TestCase
     struct TestCase *next;
 } TestCase;
 
+// Global linked list of test cases.
+static TestCase *cut_test_registry_head = NULL;
+
+// Count of registered tests.
+static size_t cut_test_registry_size = 0;
+
+// Global test context.
+static TestCtx cut_dev_ctx = {0};
+
 
 /************************************************
  * Test Declaration
@@ -73,17 +82,22 @@ void cut_test_registry_add(const char *name, TestFn fn, const char *file, int li
 
 // Emit a test event to the test result.
 void cut_test_event_emit(TestCtx *ctx, TestEvent te, const char *fmt, ...);
-#define TE(ctx, t, msg, ...) cut_test_event_emit((ctx), \
+#define TE(t, msg, ...) cut_test_event_emit((cut_test_ctx), \
     (TestEvent){.type=(t), .line=__LINE__, .file=__FILE__}, \
     (msg) __VA_OPT__(,) __VA_ARGS__)
 
-#define TE_DEBUG(msg, ...) TE((cut_test_ctx), TEST_EVENT_DEBUG, (msg),  __VA_ARGS__)
-#define TE_ERROR(msg, ...) TE((cut_test_ctx), TEST_EVENT_ERROR, (msg),  __VA_ARGS__)
-#define TE_FATAL(msg, ...) TE((cut_test_ctx), TEST_EVENT_FATAL, (msg),  __VA_ARGS__); return
+void cut_dev_test_event_emit(TestEvent te, const char *fmt, ...);
+#define DEV_TE(t, msg, ...) cut_dev_test_event_emit((TestEvent){ \
+        .type=(t), .line=__LINE__, .file=__FILE__}, \
+        (msg) __VA_OPT__(,) __VA_ARGS__)
 
-#define DEV_TE_DEBUG(msg, ...) TE((&cut_dev_ctx), TEST_EVENT_DEBUG, (msg),  __VA_ARGS__); cut_dev_print()
-#define DEV_TE_ERROR(msg, ...) TE((&cut_dev_ctx), TEST_EVENT_ERROR, (msg),  __VA_ARGS__); cut_dev_print()
-#define DEV_TE_FATAL(msg, ...) TE((&cut_dev_ctx), TEST_EVENT_FATAL, (msg),  __VA_ARGS__); cut_dev_print(); abort()
+#define TE_DEBUG(msg, ...) TE(TEST_EVENT_DEBUG, (msg),  __VA_ARGS__)
+#define TE_ERROR(msg, ...) TE(TEST_EVENT_ERROR, (msg),  __VA_ARGS__)
+#define TE_FATAL(msg, ...) TE(TEST_EVENT_FATAL, (msg),  __VA_ARGS__); return
+
+#define DEV_TE_DEBUG(msg, ...) DEV_TE(TEST_EVENT_DEBUG, (msg),  __VA_ARGS__); cut_dev_print()
+#define DEV_TE_ERROR(msg, ...) DEV_TE(TEST_EVENT_ERROR, (msg),  __VA_ARGS__); cut_dev_print()
+#define DEV_TE_FATAL(msg, ...) DEV_TE(TEST_EVENT_FATAL, (msg),  __VA_ARGS__); cut_dev_print(); abort()
 
 
 /************************************************
@@ -188,15 +202,6 @@ void cut_dev_print(void);
 #include <stdlib.h>
 #include <string.h>
 
-// Global linked list of test cases.
-static TestCase *cut_test_registry_head = NULL;
-
-// Count of registered tests.
-static size_t cut_test_registry_size = 0;
-
-// Global test context.
-static TestCtx cut_dev_ctx = {0};
-
 /**
  * Add a test case to the global registry.
  */
@@ -262,56 +267,62 @@ static void test_ctx_add(TestCtx *ctx, TestEvent event)
     ctx->events[ctx->event_count++] = event;
 }
 
-/**
- * Emit a test event to the test result.
- */
-void cut_test_event_emit(TestCtx *ctx, TestEvent te, const char *fmt, ...)
+static char *_make_message(const char *fmt, va_list args)
 {
-    assert(ctx != NULL);
-
-    va_list args;
     va_list args_copy;
-
-    va_start(args, fmt);
     va_copy(args_copy, args);
-
     int size = vsnprintf(NULL, 0, fmt, args_copy);
     va_end(args_copy);
 
-    if (size < 0)
-    {
-        va_end(args);
-        return;
-    }
+    if (size < 0) return NULL;
 
     char *msg = malloc(size+1);
-    if (msg == NULL)
-    {
-        va_end(args);
-        return;
-    }
+    if (msg == NULL) return NULL;
 
     int result = vsnprintf(msg, size+1, fmt, args);
     if (result < 0)
     {
         free(msg);
-        va_end(args);
-        return;
+        return NULL;
     }
+    return msg;
+}
 
-    te.message = msg;
+static void _test_event_emit(TestCtx *ctx, TestEvent te, const char *fmt, va_list args)
+{
+    assert(ctx != NULL);
+
+    te.message = _make_message(fmt, args);
+    assert(te.message != NULL);
     test_ctx_add(ctx, te);
 
     if (te.type == TEST_EVENT_ERROR || te.type == TEST_EVENT_FATAL)
         ctx->failure_count++;
+}
 
+/**
+ * Emit a test event to the test result.
+ */
+void cut_test_event_emit(TestCtx *ctx, TestEvent te, const char *fmt, ...)
+{
+    va_list args;
+    va_start(args, fmt);
+    _test_event_emit(ctx, te, fmt, args);
+    va_end(args);
+}
+
+void cut_dev_test_event_emit(TestEvent te, const char *fmt, ...)
+{
+    va_list args;
+    va_start(args, fmt);
+    _test_event_emit(&cut_dev_ctx, te, fmt, args);
     va_end(args);
 }
 
 /**
  * Flatten the linked list of test cases into an array.
  */
-static bool __flatten_test_list(TestCase *head, size_t size, TestCase *out[size])
+static bool _flatten_test_list(TestCase *head, size_t size, TestCase *out[size])
 {
     size_t i = 0;
     while (head != NULL && i < size)
@@ -374,7 +385,7 @@ void cut_test_run_opt(TestRunOpt opt)
     {
         size_t total = cut_test_registry_size;
         TestCase *all_tests[total];
-        if (!__flatten_test_list(cut_test_registry_head, total, all_tests))
+        if (!_flatten_test_list(cut_test_registry_head, total, all_tests))
             goto Summary;
 
         TestCtx ctx = {0};
