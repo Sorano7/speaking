@@ -1,9 +1,10 @@
 #include "overlay.h"
-#include <stdlib.h>
 
 #define OVERLAY_CLASS_NAME L"OverlayEditHostWndClass"
 #define TIMER_ID_CTRL_POLL 1
 #define CTRL_POLL_MS       15
+#define TIMER_ID_IDLE      2
+#define IDLE_MS            600
 
 #define OVERLAY_WIDTH      640
 #define OVERLAY_HEIGHT     40
@@ -21,10 +22,10 @@ static HFONT   h_font          = NULL;
 static HBRUSH  h_bg_brush      = NULL;
 static HBRUSH  h_edit_brush    = NULL;
 static bool    ctrl_hold_block = false;
-static char   *pending_text    = NULL;
 static HHOOK   h_kbd_hook      = NULL;
 static bool    win_down        = false;
 static bool    win_enter_down  = false;
+static bool    fast_mode       = false;
 
 static OverlayCallback callback;
 
@@ -62,18 +63,52 @@ static void overlay_hide(void)
     ShowWindow(h_overlay, SW_HIDE);
 }
 
-static char *overlay_get_text_utf8(void)
+static wchar_t *overlay_get_text(int *len)
 {
     int wlen = GetWindowTextLengthW(h_edit);
     wchar_t *wbuf = malloc((size_t)(wlen+1) * sizeof(wchar_t));
     if (!wbuf) return NULL;
-    GetWindowTextW(h_edit, wbuf, wlen+1);
+    *len = GetWindowTextW(h_edit, wbuf, wlen+1);
+    return wbuf;
+}
 
-    int u8len = WideCharToMultiByte(CP_UTF8, 0, wbuf, -1, NULL, 0, NULL, NULL);
+static StringView wchar_to_utf8(const wchar_t *wbuf, int wlen)
+{
+    int u8len = WideCharToMultiByte(CP_UTF8, 0, wbuf, wlen, NULL, 0, NULL, NULL);
     char *u8 = malloc((size_t)u8len > 0 ? (size_t)u8len : 1);
-    if (u8) WideCharToMultiByte(CP_UTF8, 0, wbuf, -1, u8, u8len, NULL, NULL);
-    free(wbuf);
-    return u8;
+    if (u8) WideCharToMultiByte(CP_UTF8, 0, wbuf, wlen, u8, u8len, NULL, NULL);
+    return (StringView){.data=u8, .length=u8len};
+}
+
+static void overlay_submit(bool segment, bool force)
+{
+    int len = 0;
+    wchar_t *buf = overlay_get_text(&len);
+
+    Unit units[64];
+    int consumed_end;
+    int n = scan_units(buf, len, units, sizeof(units), 
+            &consumed_end, segment, force);
+    for (int k = 0; k < n; k++)
+    {
+        int wlen = units[k].end - units[k].start;
+        StringView text = wchar_to_utf8(buf+units[k].start, wlen);
+
+        if (callback.on_submit)
+            callback.on_submit(text, units[k].lang, callback.arg);
+
+        free((char *)text.data);
+    }
+    free(buf);
+
+    if (consumed_end > 0)
+    {
+        SendMessageW(h_edit, EM_SETSEL, 0, consumed_end);
+        SendMessageW(h_edit, EM_REPLACESEL, TRUE, (LPARAM)L"");
+    }
+
+    if (GetWindowTextLengthW(h_edit) > 0)
+        SetTimer(h_overlay, TIMER_ID_IDLE, IDLE_MS, NULL);
 }
 
 void static send_disguise_key(void)
@@ -160,32 +195,22 @@ static LRESULT CALLBACK edit_subclass_proc(HWND hwnd, UINT msg, WPARAM wp, LPARA
                     return 0;
                 }
 
-                char *text = overlay_get_text_utf8();
-
                 if (ctrl)
                 {
-                    overlay_clear_text();
                     overlay_hide();
-                    pending_text = text;
                     ctrl_hold_block = true;
                     SetTimer(h_overlay, TIMER_ID_CTRL_POLL, CTRL_POLL_MS, NULL);
                     return 0;
                 }
                 else if (shift)
                 {
-                    overlay_clear_text();
-                    if (callback.on_submit)
-                        callback.on_submit(text, OA_SEND_CONTINUE, callback.arg);
+                    overlay_submit(fast_mode, true);
                 }
                 else
                 {
-                    overlay_clear_text();
                     overlay_hide();
-                    if (callback.on_submit)
-                        callback.on_submit(text, OA_SEND, callback.arg);
+                    overlay_submit(fast_mode, true);
                 }
-
-                free(text);
                 return 0;
 
             default:
@@ -226,17 +251,25 @@ static LRESULT CALLBACK overlay_wnd_proc(HWND hwnd, UINT msg, WPARAM wp, LPARAM 
                 {
                     KillTimer(hwnd, TIMER_ID_CTRL_POLL);
                     ctrl_hold_block = false;
-                    if (pending_text)
-                    {
-                        if (callback.on_submit)
-                            callback.on_submit(pending_text, OA_SEND_HOLD, callback.arg);
-
-                        free(pending_text);
-                        pending_text = NULL;
-                    }
+                    overlay_submit(fast_mode, true);
                 }
             }
+            else if (wp == TIMER_ID_IDLE)
+            {
+                KillTimer(hwnd, TIMER_ID_IDLE);
+                overlay_submit(fast_mode, true);
+            }
             return 0;
+
+        case WM_COMMAND:
+        {
+            if (HIWORD(wp) == EN_CHANGE && (HWND)lp == h_edit && fast_mode)
+            {
+                KillTimer(hwnd, TIMER_ID_IDLE);
+                overlay_submit(true, false);
+            }
+            return 0;
+        }
 
         case WM_SIZE:
             {
@@ -316,11 +349,6 @@ void overlay_shutdown(void)
     {
         KillTimer(h_overlay, TIMER_ID_CTRL_POLL);
     }
-    if (pending_text)
-    {
-        free(pending_text);
-        pending_text = NULL;
-    }
     if (h_edit && orig_edit_proc)
     {
         SetWindowLongPtrW(h_edit, GWLP_WNDPROC, (LONG_PTR)orig_edit_proc);
@@ -346,4 +374,9 @@ void overlay_shutdown(void)
         DeleteObject(h_edit_brush);
         h_edit_brush = NULL;
     }
+}
+
+void overlay_set_fast_mode(bool enabled)
+{
+    fast_mode = enabled;
 }
