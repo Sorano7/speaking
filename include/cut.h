@@ -50,15 +50,6 @@ typedef struct TestCase
     struct TestCase *next;
 } TestCase;
 
-// Global linked list of test cases.
-static TestCase *cut_test_registry_head = NULL;
-
-// Count of registered tests.
-static size_t cut_test_registry_size = 0;
-
-// Global test context.
-static TestCtx cut_dev_ctx = {0};
-
 
 /************************************************
  * Test Declaration
@@ -201,6 +192,15 @@ void cut_dev_print(void);
 
 #include <stdlib.h>
 #include <string.h>
+
+// Global linked list of test cases.
+static TestCase *cut_test_registry_head = NULL;
+
+// Count of registered tests.
+static size_t cut_test_registry_size = 0;
+
+// Global test context.
+static TestCtx cut_dev_ctx = {0};
 
 /**
  * Add a test case to the global registry.
