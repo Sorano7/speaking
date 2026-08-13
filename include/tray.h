@@ -7,7 +7,6 @@
 typedef struct
 {
     void (*on_quit)(void);
-    void (*on_fast_mode)(void);
 } TrayCallback;
 
 bool tray_init(HINSTANCE h_instance, LPCWSTR tool_tip);

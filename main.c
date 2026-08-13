@@ -109,12 +109,6 @@ static inline void on_quit(void)
     PostQuitMessage(0);
 }
 
-static inline void on_fast_mode_toggle(void)
-{
-    fast_mode = !fast_mode;
-    overlay_set_fast_mode(fast_mode);
-}
-
 static inline void show_error(LPCWSTR msg)
 {
     MessageBoxW(NULL, msg, L"Error", MB_ICONERROR);
@@ -216,7 +210,6 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrev, PWSTR cmdLine, int nSh
 
     TrayCallback tc = {0};
     tc.on_quit = on_quit;
-    tc.on_fast_mode = on_fast_mode_toggle;
     tray_set_callback(&tc);
 
     DEV_DEBUG("Ready");

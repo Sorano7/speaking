@@ -15,6 +15,5 @@ typedef struct
 bool overlay_init(HINSTANCE h_instance);
 void overlay_set_callback(const OverlayCallback *c);
 void overlay_shutdown(void);
-void overlay_set_fast_mode(bool enabled);
 
 #endif

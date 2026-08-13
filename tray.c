@@ -3,15 +3,12 @@
 #define TRAY_CLASS_NAME      L"OverlayTrayHostWndClass"
 #define WM_TRAYICON          (WM_APP + 1)
 #define ID_TRAY_QUIT         1001
-#define ID_TRAY_FAST_MODE    1002
 #define TRAY_ICON_ID         1
 
 static HMENU           h_menu     = NULL;
 static HWND            h_tray_wnd = NULL;
 static NOTIFYICONDATAW nid;
 static TrayCallback    callback;
-
-static bool fast_mode = false;
 
 static void show_tray_menu(HWND hwnd)
 {
@@ -20,9 +17,6 @@ static void show_tray_menu(HWND hwnd)
 
     h_menu = CreatePopupMenu();
     if (!h_menu) return;
-    AppendMenuW(h_menu, MF_STRING | (fast_mode ? MF_CHECKED : MF_UNCHECKED), 
-            ID_TRAY_FAST_MODE, L"Fast Mode");
-    AppendMenuW(h_menu, MF_SEPARATOR, 0, NULL);
     AppendMenuW(h_menu, MF_STRING, ID_TRAY_QUIT, L"Quit");
 
     SetForegroundWindow(hwnd);
@@ -50,14 +44,6 @@ static LRESULT CALLBACK tray_wnd_proc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
             if (LOWORD(wp) == ID_TRAY_QUIT)
             {
                 if (callback.on_quit) callback.on_quit();
-                return 0;
-            }
-            if (LOWORD(wp) == ID_TRAY_FAST_MODE)
-            {
-                fast_mode = !fast_mode;
-                CheckMenuItem(h_menu, ID_TRAY_FAST_MODE, 
-                        MF_BYCOMMAND | (fast_mode ? MF_CHECKED : MF_UNCHECKED));
-                if (callback.on_fast_mode) callback.on_fast_mode();
                 return 0;
             }
 

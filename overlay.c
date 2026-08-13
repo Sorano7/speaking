@@ -1,4 +1,5 @@
 #include "overlay.h"
+#include "cut.h"
 
 #define OVERLAY_CLASS_NAME L"OverlayEditHostWndClass"
 #define TIMER_ID_CTRL_POLL 1
@@ -56,11 +57,14 @@ static void overlay_show(void)
 
     if (attached)
         AttachThreadInput(this_thread, fg_thread, false);
+
+    DEV_DEBUG("Overlay show (fast mode %s)", fast_mode ? "on" : "off");
 }
 
 static void overlay_hide(void)
 {
     ShowWindow(h_overlay, SW_HIDE);
+    DEV_DEBUG("Overlay hide");
 }
 
 static wchar_t *overlay_get_text(int *len)
@@ -146,7 +150,6 @@ static LRESULT CALLBACK kdb_proc(int code, WPARAM wp, LPARAM lp)
 
             return CallNextHookEx(NULL, code, wp, lp);
         }
-
         if (kb->vkCode == VK_RETURN)
         {
             if (down && win_down)
@@ -154,6 +157,8 @@ static LRESULT CALLBACK kdb_proc(int code, WPARAM wp, LPARAM lp)
                 if (!win_enter_down)
                 {
                     win_enter_down = true;
+                    fast_mode = GetAsyncKeyState(VK_SHIFT) & 0x8000;
+
                     if (!ctrl_hold_block) overlay_show();
                 }
                 send_disguise_key();
@@ -374,9 +379,4 @@ void overlay_shutdown(void)
         DeleteObject(h_edit_brush);
         h_edit_brush = NULL;
     }
-}
-
-void overlay_set_fast_mode(bool enabled)
-{
-    fast_mode = enabled;
 }
