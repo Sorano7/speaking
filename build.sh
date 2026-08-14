@@ -1,4 +1,4 @@
-gcc main.c player.c overlay.c tray.c lang.c \
+cc src/*.c \
     -Iinclude \
     -Llib \
     -lole32 \
